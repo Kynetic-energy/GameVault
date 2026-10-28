@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}GameVault — Login{% endblock %}
+
+{% block content %}
+<section class="auth-page">
+    <h1>Welcome back</h1>
+    <p>Sign in to manage your cart, wishlist, orders, and reviews.</p>
+
+    {% if errors %}
+    <div class="flash-messages">
+        {% for error in errors %}
+        <div class="flash flash-error">{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('login') }}" class="auth-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="filter-field">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" value="{{ username }}" maxlength="50" required
+                autocomplete="username">
+        </div>
+
+        <div class="filter-field">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" minlength="12" maxlength="128" required
+                autocomplete="current-password">
+        </div>
+
+        <button type="submit">Log in</button>
+    </form>
+
+    <p>
+        Don’t have an account?
+        <a href="{{ url_for('register') }}">Create one</a>
+    </p>
+</section>
+{% endblock %}

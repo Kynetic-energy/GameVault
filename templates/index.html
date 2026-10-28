@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}GameVault — Game Catalog{% endblock %}
+
+{% block content %}
+<section class="catalog-hero">
+    <h1>Discover Games</h1>
+    <p>Browse the GameVault catalog, filter by genre or platform, and find your next game.</p>
+</section>
+
+<section class="catalog-filters">
+    <form method="get" action="{{ url_for('index') }}" class="filter-form" id="catalog-filter-form">
+        <div class="filter-field">
+            <label for="q">Search</label>
+            <input type="text" id="q" name="q" maxlength="150" value="{{ filters.q or '' }}"
+                placeholder="Search by game name">
+        </div>
+
+        <div class="filter-field">
+            <label for="min_price">Min price (₹)</label>
+            <input type="number" id="min_price" name="min_price" min="0" step="0.01"
+                value="{{ filters.min_price or '' }}" placeholder="0.00">
+        </div>
+
+        <div class="filter-field">
+            <label for="max_price">Max price (₹)</label>
+            <input type="number" id="max_price" name="max_price" min="0" step="0.01"
+                value="{{ filters.max_price or '' }}" placeholder="No limit">
+        </div>
+
+        <div class="filter-field multiselect-field">
+            <label>Genres</label>
+
+            <div class="multiselect" data-multiselect>
+                <button type="button" class="multiselect-toggle" aria-expanded="false" aria-controls="genre-dropdown">
+                    <span class="multiselect-label" data-placeholder="Any genre">
+                        {% if filters.genre_ids %}
+                        Including {{ filters.genre_ids|length }} selected
+                        {% elif filters.exclude_genre_ids %}
+                        Excluding {{ filters.exclude_genre_ids|length }} selected
+                        {% else %}
+                        Any genre
+                        {% endif %}
+                    </span>
+                    <span class="multiselect-caret">▾</span>
+                </button>
+
+                <div class="multiselect-dropdown" id="genre-dropdown" hidden>
+                    <input type="text" class="multiselect-search" placeholder="Search genres..."
+                        aria-label="Search genres">
+
+                    <div class="multiselect-mode">
+                        <label class="mode-option">
+                            <input type="radio" name="genre_mode" value="include" {% if not filters.exclude_genre_ids
+                                %}checked{% endif %}>
+                            Include
+                        </label>
+
+                        <label class="mode-option">
+                            <input type="radio" name="genre_mode" value="exclude" {% if filters.exclude_genre_ids
+                                %}checked{% endif %}>
+                            Exclude
+                        </label>
+                    </div>
+
+                    <div class="multiselect-options">
+                        {% for genre in genres %}
+                        <label class="multiselect-option">
+                            <input type="checkbox" class="genre-checkbox" value="{{ genre.genre_id }}"
+                                data-search="{{ genre.genre_name|lower }}" {% if genre.genre_id|string in
+                                filters.genre_ids or genre.genre_id|string in filters.exclude_genre_ids %}checked{%
+                                endif %}>
+                            <span>{{ genre.genre_name }}</span>
+                        </label>
+                        {% else %}
+                        <p class="multiselect-empty">No genres available.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-field multiselect-field">
+            <label>Platforms</label>
+
+            <div class="multiselect" data-multiselect>
+                <button type="button" class="multiselect-toggle" aria-expanded="false"
+                    aria-controls="platform-dropdown">
+                    <span class="multiselect-label" data-placeholder="Any platform">
+                        {% if filters.platform_ids %}
+                        Including {{ filters.platform_ids|length }} selected
+                        {% elif filters.exclude_platform_ids %}
+                        Excluding {{ filters.exclude_platform_ids|length }} selected
+                        {% else %}
+                        Any platform
+                        {% endif %}
+                    </span>
+                    <span class="multiselect-caret">▾</span>
+                </button>
+
+                <div class="multiselect-dropdown" id="platform-dropdown" hidden>
+                    <input type="text" class="multiselect-search" placeholder="Search platforms..."
+                        aria-label="Search platforms">
+
+                    <div class="multiselect-mode">
+                        <label class="mode-option">
+                            <input type="radio" name="platform_mode" value="include" {% if not
+                                filters.exclude_platform_ids %}checked{% endif %}>
+                            Include
+                        </label>
+
+                        <label class="mode-option">
+                            <input type="radio" name="platform_mode" value="exclude" {% if filters.exclude_platform_ids
+                                %}checked{% endif %}>
+                            Exclude
+                        </label>
+                    </div>
+
+                    <div class="multiselect-options">
+                        {% for platform in platforms %}
+                        <label class="multiselect-option">
+                            <input type="checkbox" class="platform-checkbox" value="{{ platform.platform_id }}"
+                                data-search="{{ platform.platform_name|lower }}" {% if platform.platform_id|string in
+                                filters.platform_ids or platform.platform_id|string in filters.exclude_platform_ids
+                                %}checked{% endif %}>
+                            <span>{{ platform.platform_name }}</span>
+                        </label>
+                        {% else %}
+                        <p class="multiselect-empty">No platforms available.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-field">
+            <label for="sort">Sort by</label>
+            <select id="sort" name="sort">
+                <option value="name" {% if filters.sort=='name' %}selected{% endif %}>Name</option>
+                <option value="price_asc" {% if filters.sort=='price_asc' %}selected{% endif %}>Price: low to high
+                </option>
+                <option value="price_desc" {% if filters.sort=='price_desc' %}selected{% endif %}>Price: high to low
+                </option>
+                <option value="rating_desc" {% if filters.sort=='rating_desc' %}selected{% endif %}>Highest rated
+                </option>
+                <option value="newest" {% if filters.sort=='newest' %}selected{% endif %}>Newest releases</option>
+            </select>
+        </div>
+
+        <div class="filter-field">
+            <label for="page_size">Per page</label>
+            <select id="page_size" name="page_size">
+                {% for size in [12, 24, 50] %}
+                <option value="{{ size }}" {% if pagination.page_size==size %}selected{% endif %}>
+                    {{ size }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-actions">
+            <button type="submit">Apply filters</button>
+            <a class="button-secondary" href="{{ url_for('index') }}">Clear</a>
+        </div>
+    </form>
+</section>
+
+<section class="catalog-results">
+    <div class="results-header">
+        <h2>Games</h2>
+        <p>{{ pagination.total }} game{{ 's' if pagination.total != 1 else '' }} found</p>
+    </div>
+
+    {% if games %}
+    <div class="game-grid">
+        {% for game in games %}
+        <article class="game-card">
+            <a href="{{ url_for('game_detail', game_id=game.game_id) }}" class="game-card-link">
+                <div class="game-thumbnail">
+                    {% if game.thumbnail_url %}
+                    <img src="{{ game.thumbnail_url }}" alt="Cover art for {{ game.game_name }}" loading="lazy">
+                    {% else %}
+                    <img src="{{ url_for('static', filename='images/placeholder-game.svg') }}"
+                        alt="No cover art available for {{ game.game_name }}" loading="lazy">
+                    {% endif %}
+
+                    {% if game.discount_percent and game.discount_percent > 0 %}
+                    <span class="discount-badge">-{{ game.discount_percent }}%</span>
+                    {% endif %}
+                </div>
+
+                <div class="game-card-body">
+                    <h3 class="game-title">{{ game.game_name }}</h3>
+
+                    <p class="game-meta">
+                        {{ game.developer_name or 'Unknown developer' }}
+                        {% if game.publisher_name %}
+                        · {{ game.publisher_name }}
+                        {% endif %}
+                    </p>
+
+                    <p class="game-rating">
+                        {% if game.review_count > 0 %}
+                        ★ {{ game.average_rating }} · {{ game.review_count }} review{{ 's' if game.review_count != 1
+                        else '' }}
+                        {% else %}
+                        No reviews
+                        {% endif %}
+                    </p>
+
+                    <div class="game-price">
+                        {% if game.discount_percent and game.discount_percent > 0 %}
+                        <span class="original-price">₹{{ game.standard_price }}</span>
+                        {% endif %}
+                        <span class="current-price">₹{{ game.current_price }}</span>
+                    </div>
+
+                    {% if game.release_date %}
+                    <p class="game-release">Released {{ game.release_date }}</p>
+                    {% else %}
+                    <p class="game-release">Release date unavailable</p>
+                    {% endif %}
+                </div>
+            </a>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <h3>No games found</h3>
+        <p>Try changing your search text, price range, genres, or platforms.</p>
+        <a class="button-secondary" href="{{ url_for('index') }}">Reset filters</a>
+    </div>
+    {% endif %}
+</section>
+
+{% if pagination.total_pages > 1 %}
+<nav class="pagination" aria-label="Catalog pagination">
+    {% if pagination.page > 1 %}
+    <a class="pagination-link"
+        href="{{ url_for('index', q=filters.q, min_price=filters.min_price, max_price=filters.max_price, genre_ids=filters.genre_ids, platform_ids=filters.platform_ids, exclude_genre_ids=filters.exclude_genre_ids, exclude_platform_ids=filters.exclude_platform_ids, sort=filters.sort, page=pagination.page - 1, page_size=pagination.page_size) }}">
+        Previous
+    </a>
+    {% endif %}
+
+    <span class="pagination-status">
+        Page {{ pagination.page }} of {{ pagination.total_pages }}
+    </span>
+
+    {% if pagination.page < pagination.total_pages %} <a class="pagination-link"
+        href="{{ url_for('index', q=filters.q, min_price=filters.min_price, max_price=filters.max_price, genre_ids=filters.genre_ids, platform_ids=filters.platform_ids, exclude_genre_ids=filters.exclude_genre_ids, exclude_platform_ids=filters.exclude_platform_ids, sort=filters.sort, page=pagination.page + 1, page_size=pagination.page_size) }}">
+        Next
+        </a>
+        {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

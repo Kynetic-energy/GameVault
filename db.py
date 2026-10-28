@@ -255,7 +255,18 @@ def _line_price(standard_price, discount_percent):
 
 _OPS = {}
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_FILTER_OPERATORS = ("=", "<>", ">", ">=", "<", "<=", "contains", "in", "exists")
+_FILTER_OPERATORS = {
+    "=",
+    "!=",
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "contains",
+    "in",
+    "exists",
+    "not_exists",
+}
 _FILTER_CHECKS = {
     "id": _check_id,
     "id_list": _check_id_list,
@@ -337,6 +348,8 @@ _add("catalog.list", "list", "vw_game_catalog", access="public", select=_CATALOG
          "max_price": ("decimal", "current_price", "<="),
          "genre_ids": ("id_list", "game_genres.genre_id", "exists"),
          "platform_ids": ("id_list", "game_platforms.platform_id", "exists"),
+         "exclude_genre_ids": ("idlist", "game_genres.genre_id", "not_exists"),
+         "exclude_platform_ids": ("idlist", "game_platforms.platform_id", "not_exists"),
          "publisher_id": ("id", "publisher_id", "="),
      },
      sorts=_CATALOG_SORTS, default_sort="name", tiebreak="game_id ASC")
@@ -566,6 +579,13 @@ def _client_conditions(op, filters):
                 f"EXISTS (SELECT 1 FROM {_q(table)} AS `j` WHERE `j`.`game_id` = {_q(op['source'])}.`game_id` "
                 f"AND `j`.{_q(link_column)} IN ({', '.join(['%s'] * len(value))}))")
             params.extend(value)
+        elif operator == "not_exists":
+            table, link_column = column.split(".")
+            conditions.append(
+                f"NOT EXISTS (SELECT 1 FROM {q(table)} AS j "
+                f"WHERE j.game_id = {q(op['source'])}.game_id "
+                f"AND j.{q(link_column)} IN ({placeholders}))"
+            )
         else:
             conditions.append(f"{_q(column)} {operator} %s")
             params.append(value)
