@@ -348,8 +348,8 @@ _add("catalog.list", "list", "vw_game_catalog", access="public", select=_CATALOG
          "max_price": ("decimal", "current_price", "<="),
          "genre_ids": ("id_list", "game_genres.genre_id", "exists"),
          "platform_ids": ("id_list", "game_platforms.platform_id", "exists"),
-         "exclude_genre_ids": ("idlist", "game_genres.genre_id", "not_exists"),
-         "exclude_platform_ids": ("idlist", "game_platforms.platform_id", "not_exists"),
+         "exclude_genre_ids": ("id_list", "game_genres.genre_id", "not_exists"),
+    "exclude_platform_ids": ("id_list", "game_platforms.platform_id", "not_exists"),
          "publisher_id": ("id", "publisher_id", "="),
      },
      sorts=_CATALOG_SORTS, default_sort="name", tiebreak="game_id ASC")
@@ -582,10 +582,13 @@ def _client_conditions(op, filters):
         elif operator == "not_exists":
             table, link_column = column.split(".")
             conditions.append(
-                f"NOT EXISTS (SELECT 1 FROM {q(table)} AS j "
-                f"WHERE j.game_id = {q(op['source'])}.game_id "
-                f"AND j.{q(link_column)} IN ({placeholders}))"
+                f"NOT EXISTS (SELECT 1 FROM {_q(table)} AS `j` "
+                f"WHERE `j`.`game_id` = {_q(op['source'])}.`game_id` "
+                f"AND `j`.{_q(link_column)} "
+                f"IN ({', '.join(['%s'] * len(value))}))"
             )
+            params.extend(value)
+            
         else:
             conditions.append(f"{_q(column)} {operator} %s")
             params.append(value)
@@ -906,9 +909,26 @@ def _split_game_values(values):
 def _save_links(conn, actor, game_id, links):
     for key, ids in links.items():
         table, column = GAME_LINKS[key]
-        conn.cursor().execute(f"DELETE FROM {table} WHERE game_id = %s", (game_id,))
+
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"DELETE FROM {_q(table)} WHERE game_id = %s",
+                (game_id,),
+            )
+        finally:
+            cur.close()
+
         for item_id in ids:
-            _run(f"{table}._insert", actor=actor, values={"game_id": game_id, column: item_id}, connection=conn)
+            _run(
+                f"{table}._insert",
+                actor=actor,
+                values={
+                    "game_id": game_id,
+                    column: item_id,
+                },
+                connection=conn,
+            )
 
 
 def create_game(actor, values):
@@ -924,14 +944,46 @@ def update_game(actor, game_id, values):
     actor = _require_actor(actor)
     game_id = _check_id("game_id", game_id)
     scalar, links = _split_game_values(values)
+
     if not scalar and not links:
         raise ValidationError("No fields to update.")
+
     with transaction() as conn:
-        if _run("games.manage_detail", actor=actor, filters={"game_id": game_id}, connection=conn) is None:
+        cur = conn.cursor(dictionary=True, buffered=True)
+        try:
+            cur.execute(
+                """
+                SELECT game_id, publisher_id
+                FROM games
+                WHERE game_id = %s
+                FOR UPDATE
+                """,
+                (game_id,),
+            )
+            existing = cur.fetchone()
+        finally:
+            cur.close()
+
+        if existing is None:
             raise ResourceNotFound("Game not found.")
+
+        if (
+            not actor["is_admin"]
+            and existing["publisher_id"] != actor["affiliate_publisher_id"]
+        ):
+            raise ResourceNotFound("Game not found.")
+
         if scalar:
-            _run("games.update", actor=actor, filters={"game_id": game_id}, values=scalar, connection=conn)
+            _run(
+                "games.update",
+                actor=actor,
+                filters={"game_id": game_id},
+                values=scalar,
+                connection=conn,
+            )
+
         _save_links(conn, actor, game_id, links)
+
     return {"game_id": game_id}
 
 

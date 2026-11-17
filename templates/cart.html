@@ -1,8 +1,143 @@
 {% extends "base.html" %}
 
-{% block title %}GameVault — Cart{% endblock %}
+{% block title %}GameVault — Your Cart{% endblock %}
 
 {% block content %}
-<h1>Your cart</h1>
-<p>Your cart is empty.</p>
+<section class="cart-page">
+    <header class="cart-heading">
+        <div>
+            <p class="page-eyebrow">GAMEVAULT / CART</p>
+            <h1>Your cart</h1>
+            <p class="page-description">
+                Review your selected games before checkout.
+            </p>
+        </div>
+
+        <a class="button-secondary" href="{{ url_for('index') }}">
+            Continue browsing
+        </a>
+    </header>
+
+    {% if items %}
+    <div class="cart-layout">
+        <section class="cart-items" aria-labelledby="cart-items-title">
+            <div class="results-header">
+                <h2 id="cart-items-title">Selected games</h2>
+                <p>
+                    {{ items | length }}
+                    game{{ 's' if items | length != 1 else '' }}
+                </p>
+            </div>
+
+            {% for item in items %}
+            <article class="cart-item">
+                <a class="cart-cover" href="{{ url_for('game_detail', game_id=item.game_id) }}"
+                    aria-label="View {{ item.game_name }}">
+                    {% if item.thumbnail_url %}
+                    <img src="{{ item.thumbnail_url }}" alt="Cover art for {{ item.game_name }}" loading="lazy">
+                    {% else %}
+                    <span class="cart-cover-placeholder">
+                        No cover art
+                    </span>
+                    {% endif %}
+                </a>
+
+                <div class="cart-item-details">
+                    <h3>
+                        <a href="{{ url_for('game_detail', game_id=item.game_id) }}">
+                            {{ item.game_name }}
+                        </a>
+                    </h3>
+
+                    <p class="cart-item-note">
+                        Game-level purchase
+                    </p>
+
+                    {% if item.discount_percent > 0 %}
+                    <span class="cart-discount">
+                        {{ "%.2f" | format(item.discount_percent) }}% off
+                    </span>
+                    {% endif %}
+
+                    <form method="post" action="{{ url_for('cart_remove', game_id=item.game_id) }}"
+                        class="cart-remove-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                        <button type="submit" class="cart-remove-button"
+                            aria-label="Remove {{ item.game_name }} from cart">
+                            Remove
+                        </button>
+                    </form>
+                </div>
+
+                <div class="cart-item-price">
+                    {% if item.discount_percent > 0 %}
+                    <del>
+                        ₹{{ "%.2f" | format(item.standard_price) }}
+                    </del>
+                    {% endif %}
+
+                    <strong>
+                        {% if item.line_price == 0 %}
+                        Free
+                        {% else %}
+                        ₹{{ "%.2f" | format(item.line_price) }}
+                        {% endif %}
+                    </strong>
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+
+        <aside class="cart-summary" aria-labelledby="cart-summary-title">
+            <p class="page-eyebrow">YOUR SELECTION</p>
+            <h2 id="cart-summary-title">Order summary</h2>
+
+            <dl class="cart-summary-details">
+                <div>
+                    <dt>Games</dt>
+                    <dd>{{ items | length }}</dd>
+                </div>
+
+                <div>
+                    <dt>Currency</dt>
+                    <dd>INR</dd>
+                </div>
+
+                <div class="cart-total-row">
+                    <dt>Total</dt>
+                    <dd>₹{{ "%.2f" | format(total) }}</dd>
+                </div>
+            </dl>
+
+            <p class="cart-summary-note">
+                Prices reflect the current catalog. Final prices are
+                checked again when you place your order.
+            </p>
+
+            <a class="button-primary cart-checkout-button" href="{{ url_for('checkout') }}">
+                Proceed to checkout
+            </a>
+
+            <p class="cart-simulation-note">
+                Lab prototype: payments are simulated.
+                No card or bank details are required.
+            </p>
+        </aside>
+    </div>
+
+    {% else %}
+    <section class="empty-state cart-empty">
+        <p class="page-eyebrow">NOTHING HERE YET</p>
+        <h2>Your cart is empty</h2>
+        <p>
+            Find a game you like and add it to your cart.
+        </p>
+
+        <a class="button-secondary" href="{{ url_for('index') }}">
+            Explore games
+        </a>
+    </section>
+    {% endif %}
+</section>
 {% endblock %}

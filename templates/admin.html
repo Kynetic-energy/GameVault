@@ -1,0 +1,357 @@
+{% extends "base.html" %}
+
+{% block title %}GameVault — Management{% endblock %}
+
+{% macro game_fields(game, publishers, developers, genres, platforms, is_admin) %}
+{% set prefix = 'game-' ~ game.game_id if game else 'new-game' %}
+
+<div class="filter-form">
+    <div class="filter-field">
+        <label for="{{ prefix }}-name">Game name</label>
+        <input id="{{ prefix }}-name" type="text" name="game_name" value="{{ game.game_name if game else '' }}"
+            maxlength="150" required>
+    </div>
+
+    {% if is_admin %}
+    <div class="filter-field">
+        <label for="{{ prefix }}-publisher">Publisher</label>
+        <select id="{{ prefix }}-publisher" name="publisher_id" required>
+            <option value="">Choose a publisher</option>
+
+            {% for publisher in publishers %}
+            <option value="{{ publisher.publisher_id }}" {% if game and game.publisher_id==publisher.publisher_id %}
+                selected {% endif %}>
+                {{ publisher.publisher_name }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+
+    <div class="filter-field">
+        <label for="{{ prefix }}-developer">Developer</label>
+        <select id="{{ prefix }}-developer" name="developer_id" required>
+            <option value="">Choose a developer</option>
+
+            {% for developer in developers %}
+            <option value="{{ developer.dev_id }}" {% if game and game.developer_id==developer.dev_id %} selected {%
+                endif %}>
+                {{ developer.dev_name }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="filter-field">
+        <label for="{{ prefix }}-price">Standard price (INR)</label>
+        <input id="{{ prefix }}-price" type="number" name="standard_price" min="0" max="99999999.99" step="0.01"
+            value="{{ game.standard_price if game else '' }}" required>
+    </div>
+
+    <div class="filter-field">
+        <label for="{{ prefix }}-discount">Discount (%)</label>
+        <input id="{{ prefix }}-discount" type="number" name="discount_percent" min="0" max="100" step="0.01"
+            value="{{ game.discount_percent if game else '0.00' }}" required>
+    </div>
+
+    <div class="filter-field">
+        <label for="{{ prefix }}-release">Release date</label>
+        <input id="{{ prefix }}-release" type="date" name="release_date"
+            value="{{ game.release_date if game and game.release_date else '' }}">
+    </div>
+
+    <div class="filter-field">
+        <label for="{{ prefix }}-thumbnail">Thumbnail URL or local path</label>
+        <input id="{{ prefix }}-thumbnail" type="text" name="thumbnail_url" maxlength="255"
+            value="{{ game.thumbnail_url if game and game.thumbnail_url else '' }}"
+            placeholder="/static/images/cover.jpg">
+    </div>
+</div>
+
+<div class="filter-field">
+    <label for="{{ prefix }}-description">Description</label>
+    <textarea id="{{ prefix }}-description" name="description" rows="5" maxlength="10000"
+        placeholder="Describe the game.">{{ game.description if game and game.description else '' }}</textarea>
+</div>
+
+<div class="filter-form">
+    <fieldset>
+        <legend>Genres</legend>
+
+        <!-- Present even when every checkbox is unchecked. -->
+        <input type="hidden" name="genre_ids_present" value="1">
+
+        {% set selected_genres = game.get('genre_ids', []) if game else [] %}
+
+        {% for genre in genres %}
+        <label class="multiselect-option">
+            <input type="checkbox" name="genre_ids" value="{{ genre.genre_id }}" {% if genre.genre_id in selected_genres
+                %}checked{% endif %}>
+            <span>{{ genre.genre_name }}</span>
+        </label>
+        {% else %}
+        <p>No genres available.</p>
+        {% endfor %}
+    </fieldset>
+
+    <fieldset>
+        <legend>Platforms</legend>
+
+        <input type="hidden" name="platform_ids_present" value="1">
+
+        {% set selected_platforms = game.get('platform_ids', []) if game else [] %}
+
+        {% for platform in platforms %}
+        <label class="multiselect-option">
+            <input type="checkbox" name="platform_ids" value="{{ platform.platform_id }}" {% if platform.platform_id in
+                selected_platforms %}checked{% endif %}>
+            <span>{{ platform.platform_name }}</span>
+        </label>
+        {% else %}
+        <p>No platforms available.</p>
+        {% endfor %}
+    </fieldset>
+</div>
+{% endmacro %}
+
+{% block content %}
+{% if current_user and
+(current_user.is_admin or current_user.affiliate_publisher_id) %}
+
+{% set is_admin = current_user.is_admin %}
+{% set games = manageable_games | default([]) %}
+{% set publishers = publishers | default([]) %}
+{% set developers = developers | default([]) %}
+{% set genres = genres | default([]) %}
+{% set platforms = platforms | default([]) %}
+
+<section class="catalog-hero">
+    <p class="game-meta">GAMEVAULT / MANAGEMENT</p>
+
+    <h1>
+        {% if is_admin %}
+        Admin dashboard
+        {% else %}
+        Publisher dashboard
+        {% endif %}
+    </h1>
+
+    <p>
+        {% if is_admin %}
+        Manage the game catalog, publishers, developers, genres, and platforms.
+        {% else %}
+        Create and update games belonging to your affiliated publisher.
+        {% endif %}
+    </p>
+</section>
+
+<nav class="filter-actions" aria-label="Management sections">
+    <a class="button-secondary" href="#create-game">Add game</a>
+    <a class="button-secondary" href="#manage-games">Manage games</a>
+
+    {% if is_admin %}
+    <a class="button-secondary" href="#catalog-records">
+        Catalog records
+    </a>
+    {% endif %}
+
+    <a class="button-secondary" href="{{ url_for('index') }}">
+        View store
+    </a>
+</nav>
+
+{% if errors | default([]) %}
+<section class="flash-messages" aria-label="Validation errors">
+    {% for error in errors %}
+    <div class="flash flash-error" role="alert">{{ error }}</div>
+    {% endfor %}
+</section>
+{% endif %}
+
+<section id="create-game" class="catalog-results">
+    <div class="results-header">
+        <h2>Add a game</h2>
+        <p>Prices are in INR.</p>
+    </div>
+
+    <details class="empty-state">
+        <summary>Create a new catalog entry</summary>
+
+        <form method="post" action="{{ url_for('admin_game_save') }}" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            {{ game_fields(
+            none,
+            publishers,
+            developers,
+            genres,
+            platforms,
+            is_admin
+            ) }}
+
+            {% if not is_admin %}
+            <p class="game-meta">
+                The publisher is assigned automatically from your account.
+            </p>
+            {% endif %}
+
+            <button type="submit">Create game</button>
+        </form>
+    </details>
+</section>
+
+<section id="manage-games" class="catalog-results">
+    <div class="results-header">
+        <h2>Manage games</h2>
+        <p>{{ games | length }} entries loaded</p>
+    </div>
+
+    {% for game in games %}
+    <details class="empty-state">
+        <summary>
+            {{ game.game_name }}
+            — INR {{ "%.2f" | format(game.current_price) }}
+        </summary>
+
+        <p class="game-meta">
+            ID: {{ game.game_id }}
+            · {{ game.publisher_name }}
+            · {{ game.developer_name }}
+        </p>
+
+        <form method="post" action="{{ url_for('admin_game_save') }}" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <input type="hidden" name="game_id" value="{{ game.game_id }}">
+
+            {{ game_fields(
+            game,
+            publishers,
+            developers,
+            genres,
+            platforms,
+            is_admin
+            ) }}
+
+            <button type="submit">Save changes</button>
+        </form>
+
+        {% if is_admin %}
+        <details>
+            <summary>Delete this game</summary>
+
+            <p>
+                Deletion is permanent and may be blocked when the game
+                is referenced by order history.
+            </p>
+
+            <form method="post" action="{{ url_for('admin_game_delete', game_id=game.game_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <button type="submit" class="button-secondary">
+                    Permanently delete {{ game.game_name }}
+                </button>
+            </form>
+        </details>
+        {% endif %}
+    </details>
+    {% else %}
+    <div class="empty-state">
+        <h3>No manageable games loaded</h3>
+        <p>
+            Your route must supply the games you are permitted to manage.
+            Use the create form to add a new entry.
+        </p>
+    </div>
+    {% endfor %}
+</section>
+{% if management_pagination is defined
+and management_pagination.total_pages > 1 %}
+<nav class="pagination" aria-label="Management pagination">
+    {% if management_pagination.page > 1 %}
+    <a class="pagination-link" href="{{ url_for('admin', page=management_pagination.page - 1) }}#manage-games">
+        Previous
+    </a>
+    {% endif %}
+
+    <span class="pagination-status">
+        Page {{ management_pagination.page }}
+        of {{ management_pagination.total_pages }}
+        · {{ management_pagination.total }} games
+    </span>
+
+    {% if management_pagination.page < management_pagination.total_pages %} <a class="pagination-link"
+        href="{{ url_for('admin', page=management_pagination.page + 1) }}#manage-games">
+        Next
+        </a>
+        {% endif %}
+</nav>
+{% endif %}
+{% if is_admin %}
+<section id="catalog-records" class="catalog-results">
+    <div class="results-header">
+        <h2>Catalog records</h2>
+        <p>Administrator controls</p>
+    </div>
+
+    {% set catalog_groups = [
+    ('publishers', 'Publishers', publishers, 'publisher_id', 'publisher_name', 100),
+    ('developers', 'Developers', developers, 'dev_id', 'dev_name', 100),
+    ('genres', 'Genres', genres, 'genre_id', 'genre_name', 50),
+    ('platforms', 'Platforms', platforms, 'platform_id', 'platform_name', 50)
+    ] %}
+
+    {% for entity, title, records, id_key, name_key, max_length in catalog_groups %}
+    <details class="empty-state">
+        <summary>{{ title }}</summary>
+
+        <h3>Add record</h3>
+
+        <form method="post" action="{{ url_for('admin_catalog_save', entity=entity) }}" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="filter-field">
+                <label for="new-{{ entity }}">Name</label>
+                <input id="new-{{ entity }}" type="text" name="name" maxlength="{{ max_length }}" required>
+            </div>
+
+            <button type="submit">Add record</button>
+        </form>
+
+        <h3>Existing records</h3>
+
+        {% for record in records %}
+        <form method="post" action="{{ url_for('admin_catalog_save', entity=entity) }}" class="auth-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <input type="hidden" name="entity_id" value="{{ record[id_key] }}">
+
+            <div class="filter-field">
+                <label for="{{ entity }}-{{ record[id_key] }}">
+                    Name — ID {{ record[id_key] }}
+                </label>
+
+                <input id="{{ entity }}-{{ record[id_key] }}" type="text" name="name" value="{{ record[name_key] }}"
+                    maxlength="{{ max_length }}" required>
+            </div>
+
+            <button type="submit">Save name</button>
+        </form>
+        {% else %}
+        <p>No records loaded.</p>
+        {% endfor %}
+    </details>
+    {% endfor %}
+</section>
+{% endif %}
+
+{% else %}
+<section class="empty-state">
+    <h1>Management access required</h1>
+    <p>This page is available to administrators and affiliated publishers.</p>
+    <a class="button-secondary" href="{{ url_for('index') }}">
+        Return to catalog
+    </a>
+</section>
+{% endif %}
+{% endblock %}

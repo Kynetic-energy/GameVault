@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block title %}GameVault — Checkout{% endblock %}
+
+{% block content %}
+<section class="checkout-page">
+    <header class="cart-heading">
+        <div>
+            <p class="page-eyebrow">GAMEVAULT / CHECKOUT</p>
+            <h1>Review your order</h1>
+
+            <p class="page-description">
+                Review your games and choose a simulated payment result.
+            </p>
+        </div>
+
+        <a class="button-secondary" href="{{ url_for('cart') }}">
+            Back to cart
+        </a>
+    </header>
+
+    <div class="checkout-notice" role="note">
+        <h2>Simulation only</h2>
+        <p>
+            This is a lab prototype. No real payment is collected,
+            and no card or bank details are required.
+        </p>
+    </div>
+
+    {% if errors %}
+    <section class="flash-messages" aria-label="Checkout issues">
+        {% for error in errors %}
+        <div class="flash flash-error" role="alert">
+            {{ error }}
+        </div>
+        {% endfor %}
+    </section>
+    {% endif %}
+
+    {% if items %}
+    <div class="cart-layout">
+        <section class="cart-items" aria-labelledby="checkout-items-title">
+            <div class="results-header">
+                <h2 id="checkout-items-title">Your games</h2>
+                <p>
+                    {{ items | length }}
+                    game{{ 's' if items | length != 1 else '' }}
+                </p>
+            </div>
+
+            {% for item in items %}
+            <article class="cart-item checkout-item">
+                <a class="cart-cover" href="{{ url_for('game_detail', game_id=item.game_id) }}"
+                    aria-label="View {{ item.game_name }}">
+                    {% if item.thumbnail_url %}
+                    <img src="{{ item.thumbnail_url }}" alt="Cover art for {{ item.game_name }}" loading="lazy">
+                    {% else %}
+                    <span class="cart-cover-placeholder">
+                        No cover art
+                    </span>
+                    {% endif %}
+                </a>
+
+                <div class="cart-item-details">
+                    <h3>
+                        <a href="{{ url_for('game_detail', game_id=item.game_id) }}">
+                            {{ item.game_name }}
+                        </a>
+                    </h3>
+
+                    <p class="cart-item-note">
+                        Game-level purchase
+                    </p>
+
+                    {% if item.discount_percent > 0 %}
+                    <span class="cart-discount">
+                        {{ "%.2f" | format(item.discount_percent) }}% off
+                    </span>
+                    {% endif %}
+                </div>
+
+                <div class="cart-item-price">
+                    {% if item.discount_percent > 0 %}
+                    <del>
+                        ₹{{ "%.2f" | format(item.standard_price) }}
+                    </del>
+                    {% endif %}
+
+                    <strong>
+                        {% if item.line_price == 0 %}
+                        Free
+                        {% else %}
+                        ₹{{ "%.2f" | format(item.line_price) }}
+                        {% endif %}
+                    </strong>
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+
+        <aside class="cart-summary checkout-summary" aria-labelledby="checkout-summary-title">
+            <p class="page-eyebrow">FINAL REVIEW</p>
+            <h2 id="checkout-summary-title">Payment simulation</h2>
+
+            <dl class="cart-summary-details">
+                <div>
+                    <dt>Account</dt>
+                    <dd>{{ current_user.username }}</dd>
+                </div>
+
+                <div>
+                    <dt>Games</dt>
+                    <dd>{{ items | length }}</dd>
+                </div>
+
+                <div>
+                    <dt>Currency</dt>
+                    <dd>INR</dd>
+                </div>
+
+                <div class="cart-total-row">
+                    <dt>Total</dt>
+                    <dd>₹{{ "%.2f" | format(total) }}</dd>
+                </div>
+            </dl>
+
+            <p class="cart-summary-note">
+                This is a preview. Prices and purchase eligibility are
+                checked again when you submit.
+            </p>
+
+            <form method="post" action="{{ url_for('checkout') }}" class="checkout-payment-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <fieldset class="checkout-payment-controls" {% if errors %}disabled{% endif %}>
+                    <legend>Choose a simulated result</legend>
+
+                    <button type="submit" name="simulation_result" value="success" class="checkout-success-button">
+                        Simulate successful payment
+                    </button>
+
+                    <p class="checkout-result-help">
+                        Creates a paid order and removes the purchased games
+                        from your cart.
+                    </p>
+
+                    <button type="submit" name="simulation_result" value="failure"
+                        class="button-secondary checkout-failure-button">
+                        Simulate failed payment
+                    </button>
+
+                    <p class="checkout-result-help">
+                        Records a failed payment and cancelled order.
+                        Your cart stays unchanged.
+                    </p>
+                </fieldset>
+            </form>
+
+            <p class="cart-simulation-note">
+                Retrying a failed payment creates a new order.
+                This prototype does not provide game downloads.
+            </p>
+        </aside>
+    </div>
+
+    {% else %}
+    <section class="empty-state cart-empty">
+        <p class="page-eyebrow">NOTHING TO CHECK OUT</p>
+        <h2>Your cart is empty</h2>
+
+        <p>
+            Add a game to your cart before starting checkout.
+        </p>
+
+        <a class="button-secondary" href="{{ url_for('index') }}">
+            Explore games
+        </a>
+    </section>
+    {% endif %}
+</section>
+{% endblock %}

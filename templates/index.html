@@ -222,6 +222,18 @@
                     {% endif %}
                 </div>
             </a>
+            <div class="catalog-cart-action">
+                {% if current_user %}
+                <form method="post" action="{{ url_for('cart_add', game_id=game.game_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+                    <button type="submit">Add to cart</button>
+                </form>
+                {% else %}
+                <a class="button-secondary" href="{{ url_for('login') }}">
+                    Sign in to purchase
+                </a>
+                {% endif %}        </div>
         </article>
         {% endfor %}
     </div>
