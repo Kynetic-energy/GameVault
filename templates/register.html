@@ -3,6 +3,50 @@
 {% block title %}GameVault — Register{% endblock %}
 
 {% block content %}
-<h1>Register</h1>
-<p>Registration will be implemented next.</p>
+<section class="auth-page">
+    <h1>Create account</h1>
+
+    {% if errors %}
+    <div class="flash-messages">
+        {% for error in errors %}
+        <div class="flash flash-error">{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('register') }}" class="auth-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="filter-field">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" value="{{ username }}" minlength="3" maxlength="50"
+                autocomplete="username" required>
+        </div>
+
+        <div class="filter-field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" value="{{ email }}" maxlength="100" autocomplete="email"
+                required>
+        </div>
+
+        <div class="filter-field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" minlength="12" maxlength="128"
+                autocomplete="new-password" required>
+        </div>
+
+        <div class="filter-field">
+            <label for="confirm_password">Confirm password</label>
+            <input id="confirm_password" name="confirm_password" type="password" minlength="12" maxlength="128"
+                autocomplete="new-password" required>
+        </div>
+
+        <button type="submit">Create account</button>
+    </form>
+
+    <p>
+        Already have an account?
+        <a href="{{ url_for('login') }}">Sign in</a>
+    </p>
+</section>
 {% endblock %}

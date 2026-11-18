@@ -827,22 +827,43 @@ def checkout(actor, simulation_result):
     user_id = actor["user_id"]
 
     with transaction() as conn:
+        cur = conn.cursor(dictionary=True, buffered=True)
+
+        # 1. Serialize this user's checkouts. This must be the first read in
+        #    the transaction so later reads see everything already committed.
+        cur.execute("SELECT user_id FROM users WHERE user_id = %s FOR UPDATE", (user_id,))
+        if cur.fetchone() is None:
+            raise PermissionDenied("Sign in required.")
+
+        # 2. Read the cart.
         cart = _run("cart.list", actor=actor, connection=conn)["rows"]
         if not cart:
             raise ValidationError("Your cart is empty.")
-        game_ids = [row["game_id"] for row in cart]
+        game_ids = sorted({row["game_id"] for row in cart})
         marks = ", ".join(["%s"] * len(game_ids))
 
-        cur = conn.cursor(dictionary=True, buffered=True)
+        # 3. Lock the game rows in ID order and price from the locked values.
+        cur.execute(
+            f"SELECT game_id, standard_price, discount_percent FROM games "
+            f"WHERE game_id IN ({marks}) ORDER BY game_id FOR UPDATE",
+            tuple(game_ids),
+        )
+        games = {row["game_id"]: row for row in cur.fetchall()}
+        if len(games) != len(game_ids):
+            raise ConflictError("A game in your cart is no longer available.")
+
+        # 4. Reject games the user already owns.
         cur.execute(f"SELECT game_name FROM vw_owned_games WHERE user_id = %s AND game_id IN ({marks})",
                     (user_id, *game_ids))
         owned = [row["game_name"] for row in cur.fetchall()]
         if owned:
             raise ConflictError("You already own: " + ", ".join(owned) + ".")
 
-        lines = [(row["game_id"], _line_price(row["standard_price"], row["discount_percent"])) for row in cart]
+        lines = [(gid, _line_price(games[gid]["standard_price"], games[gid]["discount_percent"]))
+                 for gid in game_ids]
         total = sum((price for _, price in lines), ZERO)
 
+        # 5. Order, items, payment.
         cur.execute("INSERT INTO orders (user_id, order_status) VALUES (%s, 'PENDING')", (user_id,))
         order_id = cur.lastrowid
         cur.executemany("INSERT INTO order_items (order_id, game_id, price_paid) VALUES (%s, %s, %s)",
@@ -853,9 +874,14 @@ def checkout(actor, simulation_result):
         status = "PAID" if succeeded else "CANCELLED"
         cur.execute("UPDATE orders SET transaction_id = %s, order_status = %s WHERE order_id = %s",
                     (cur.lastrowid, status, order_id))
+
+        # 6. On success, clear purchased games from the cart and the wishlist.
         if succeeded:
             cur.execute(f"DELETE FROM cart_items WHERE user_id = %s AND game_id IN ({marks})",
                         (user_id, *game_ids))
+            cur.execute(f"DELETE FROM wishlists WHERE user_id = %s AND game_id IN ({marks})",
+                        (user_id, *game_ids))
+        cur.close()
     return {"order_id": order_id, "status": status, "total": total}
 
 
@@ -874,12 +900,22 @@ def get_orders_with_items(actor, page=None, page_size=None):
 
 # ---------------------------------------------------------------- reviews
 
+def _lock_game(conn, game_id):
+    cur = conn.cursor(dictionary=True, buffered=True)
+    try:
+        cur.execute("SELECT game_id FROM games WHERE game_id = %s FOR UPDATE", (game_id,))
+        if cur.fetchone() is None:
+            raise ResourceNotFound("Game not found.")
+    finally:
+        cur.close()
+
 def save_review(actor, game_id, rating, review_text=None):
     actor = _require_actor(actor)
     game_id = _check_id("game_id", game_id)
     rating = _check_rating("rating", rating)
     review_text = _check_field(_REVIEW_TEXT, "review_text", review_text)
     with transaction() as conn:
+        _lock_game(conn, game_id)
         if _run("ownership.detail", actor=actor, filters={"game_id": game_id}, connection=conn) is None:
             raise PermissionDenied("You can only review games you own.")
         if _run("reviews.own", actor=actor, filters={"game_id": game_id}, connection=conn) is None:
@@ -890,11 +926,13 @@ def save_review(actor, game_id, rating, review_text=None):
                  values={"rating": rating, "review_text": review_text, "review_date": datetime.now()})
     return {"game_id": game_id, "rating": rating}
 
-
 def delete_review(actor, game_id):
     actor = _require_actor(actor)
-    return _run("reviews._delete", actor=actor, filters={"game_id": _check_id("game_id", game_id)})
-
+    game_id = _check_id("game_id", game_id)
+    with transaction() as conn:
+        _lock_game(conn, game_id)
+        return _run("reviews._delete", actor=actor, filters={"game_id": game_id}, connection=conn)
+    
 
 # ---------------------------------------------------------------- games and lookup tables
 

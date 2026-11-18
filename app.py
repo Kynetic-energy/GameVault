@@ -55,10 +55,13 @@ def parse_catalog_filters():
     min_price = request.args.get("min_price", "").strip() or None
     max_price = request.args.get("max_price", "").strip() or None
 
-    genre_ids = request.args.getlist("genre_ids")
-    platform_ids = request.args.getlist("platform_ids")
-    exclude_genre_ids = request.args.getlist("exclude_genre_ids")
-    exclude_platform_ids = request.args.getlist("exclude_platform_ids")
+    def clean_list(name):
+        return [v.strip() for v in request.args.getlist(name) if v.strip()]
+
+    genre_ids = clean_list("genre_ids")
+    platform_ids = clean_list("platform_ids")
+    exclude_genre_ids = clean_list("exclude_genre_ids")
+    exclude_platform_ids = clean_list("exclude_platform_ids")
 
     sort = request.args.get("sort", "name")
     if sort not in {"name", "price_asc", "price_desc", "rating_desc", "newest"}:
@@ -105,7 +108,6 @@ def parse_catalog_filters():
 
     return filters
 
-
 @app.route("/")
 def index():
     parsed = parse_catalog_filters()
@@ -116,24 +118,32 @@ def index():
         if key not in {"sort", "page", "page_size"}
     }
 
-    result = db.execute_operation(
-        operation="catalog.list",
-        actor=None,
-        filters=catalog_filters,
-        sort=parsed["sort"],
-        page=parsed["page"],
-        page_size=parsed["page_size"],
-    )
+    try:
+        result = db.execute_operation(
+            operation="catalog.list",
+            actor=None,
+            filters=catalog_filters,
+            sort=parsed["sort"],
+            page=parsed["page"],
+            page_size=parsed["page_size"],
+        )
 
-    genres = db.execute_operation(
-        operation="genres.list",
-        actor=None,
-    )["rows"]
+        genres = db.execute_operation(
+            operation="genres.list",
+            actor=None,
+        )["rows"]
 
-    platforms = db.execute_operation(
-        operation="platforms.list",
-        actor=None,
-    )["rows"]
+        platforms = db.execute_operation(
+            operation="platforms.list",
+            actor=None,
+        )["rows"]
+
+    except db.ValidationError as exc:
+        abort(400, description=str(exc))
+
+    except db.DatabaseFailure:
+        app.logger.error("Catalog database read failed.")
+        abort(503, description="The catalog is temporarily unavailable.")
 
     total = result["total"]
     page_size = result["page_size"]
@@ -152,7 +162,6 @@ def index():
             "total_pages": total_pages,
         },
     )
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -194,9 +203,53 @@ def logout():
     flash("You have been logged out.", "success")
     return redirect(url_for("index"))
 
-@app.route("/register")
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    return render_template("register.html")
+    if get_current_user() is not None:
+        return redirect(url_for("index"))
+
+    if request.method == "GET":
+        return render_template(
+            "register.html", errors=[], username="", email=""
+        )
+
+    username = request.form.get("username", "").strip()
+    email = request.form.get("email", "").strip()
+    errors = []
+
+    try:
+        check_form_fields({
+            "csrf_token",
+            "username",
+            "email",
+            "password",
+            "confirm_password",
+        })
+
+        db.register_user(
+            username,
+            email,
+            request.form.get("password", ""),
+            request.form.get("confirm_password", ""),
+        )
+
+    except (db.ValidationError, db.ConflictError) as exc:
+        errors.append(str(exc))
+
+    except db.DatabaseFailure:
+        app.logger.error("Registration database operation failed.")
+        errors.append("We could not create your account. Please try again.")
+
+    else:
+        flash("Account created. You can sign in now.", "success")
+        return redirect(url_for("login"), code=303)
+
+    return render_template(
+        "register.html",
+        errors=errors,
+        username=username,
+        email=email,
+    ), 400
 
 
 # ---------------------------------------------------------------- customer routes
@@ -431,15 +484,161 @@ def cart_remove(game_id):
     return redirect(url_for("cart"), code=303)
 
 
+def wishlist_failure(exc, fallback):
+    if isinstance(exc, db.PermissionDenied):
+        abort(403, description=str(exc))
+
+    if isinstance(exc, db.ResourceNotFound):
+        abort(404, description=str(exc))
+
+    if isinstance(exc, db.DatabaseFailure):
+        app.logger.error("Wishlist database operation failed.")
+        flash("We could not update your wishlist. Please try again.", "error")
+    else:
+        flash(str(exc), "error")
+
+    return redirect(fallback, code=303)
+
+
 @app.route("/wishlist")
+@login_required
 def wishlist():
-    return render_template("wishlist.html", items=[])
+    try:
+        result = db.execute_operation(
+            "wishlist.list",
+            actor=g.customer_actor,
+        )
+
+        return render_template("wishlist.html", items=result["rows"])
+
+    except db.DatabaseFailure:
+        app.logger.error("Wishlist database read failed.")
+        abort(503, description="Your wishlist is temporarily unavailable.")
+
+
+@app.route("/wishlist/add/<int:game_id>", methods=["POST"])
+@login_required
+def wishlist_add(game_id):
+    actor = g.customer_actor
+    back = url_for("game_detail", game_id=game_id)
+
+    try:
+        check_form_fields({"csrf_token"})
+
+        game = db.execute_operation(
+            "catalog.detail",
+            filters={"game_id": game_id},
+        )
+
+        if game is None:
+            raise db.ResourceNotFound("Game not found.")
+
+        owned = db.execute_operation(
+            "ownership.detail",
+            actor=actor,
+            filters={"game_id": game_id},
+        )
+
+        if owned is not None:
+            flash("You already own this game.", "info")
+            return redirect(back, code=303)
+
+        try:
+            db.execute_operation(
+                "wishlist.add",
+                actor=actor,
+                values={"game_id": game_id},
+            )
+        except db.ConflictError:
+            flash("This game is already in your wishlist.", "info")
+        else:
+            flash(f"{game['game_name']} added to your wishlist.", "success")
+
+    except db.DBError as exc:
+        return wishlist_failure(exc, back)
+
+    return redirect(back, code=303)
+
+
+@app.route("/wishlist/remove/<int:game_id>", methods=["POST"])
+@login_required
+def wishlist_remove(game_id):
+    try:
+        check_form_fields({"csrf_token", "return_to"})
+
+        db.execute_operation(
+            "wishlist.remove",
+            actor=g.customer_actor,
+            filters={"game_id": game_id},
+        )
+
+        flash("Game removed from your wishlist.", "success")
+
+    except db.ResourceNotFound:
+        flash("That game is no longer in your wishlist.", "info")
+
+    except db.DBError as exc:
+        return wishlist_failure(exc, url_for("wishlist"))
+
+    if request.form.get("return_to") == "game":
+        return redirect(url_for("game_detail", game_id=game_id), code=303)
+
+    return redirect(url_for("wishlist"), code=303)
+
+
+ORDERS_PER_PAGE = 5
 
 
 @app.route("/orders")
+@login_required
 def orders():
-    return render_template("orders.html", orders=[], owned_games=[])
+    actor = g.customer_actor
 
+    text = request.args.get("page", "1")
+    page = (
+        int(text)
+        if text.isascii() and text.isdigit() and 1 <= int(text) <= 1_000_000
+        else 1
+    )
+
+    try:
+        result = db.get_orders_with_items(
+            actor,
+            page=page,
+            page_size=ORDERS_PER_PAGE,
+        )
+
+        owned = db.execute_operation(
+            "ownership.list",
+            actor=actor,
+            sort="recent",
+            page=1,
+            page_size=50,
+        )
+
+    except db.DatabaseFailure:
+        app.logger.error("Orders database read failed.")
+        abort(
+            503,
+            description="Your orders are temporarily unavailable.",
+        )
+
+    total_pages = max(
+        1,
+        (result["total"] + result["page_size"] - 1) // result["page_size"],
+    )
+
+    return render_template(
+        "orders.html",
+        orders=result["rows"],
+        owned_games=owned["rows"],
+        owned_total=owned["total"],
+        order_pagination={
+            "page": result["page"],
+            "total": result["total"],
+            "total_pages": total_pages,
+        },
+    )
 
 # ---------------------------------------------------------------- management
 
@@ -496,12 +695,15 @@ def management_required(admin_only=False):
 def check_form_fields(allowed, repeated=()):
     unknown = set(request.form) - set(allowed)
 
+
     if unknown:
         raise db.ValidationError(
             "The form contains unsupported fields."
         )
 
-    repeated = set(repeated)
+
+    repeated = set(repeated) | {"csrf_token"}
+
 
     for field in request.form:
         if (
@@ -855,9 +1057,42 @@ def admin_catalog_save(entity):
 
     return redirect(url_for("admin"), code=303)
 
+# ---------------------------------------------------------------- game details
 
-@app.route("/game/<int:game_id>")
-def game_detail(game_id):
+
+def game_failure(exc):
+    if isinstance(exc, db.PermissionDenied):
+        abort(403, description=str(exc))
+
+    if isinstance(exc, db.ResourceNotFound):
+        abort(404, description=str(exc))
+
+    if isinstance(exc, db.DatabaseFailure):
+        app.logger.error("Game detail database operation failed.")
+        abort(
+            503,
+            description="This game page is temporarily unavailable.",
+        )
+
+    flash(str(exc), "error")
+
+    return redirect(
+        url_for("game_detail", game_id=request.view_args["game_id"]),
+        code=303,
+    )
+
+REVIEWS_PER_PAGE = 10
+
+
+def parse_review_page():
+    text = request.args.get("review_page", "1")
+
+    if text.isascii() and text.isdigit() and 1 <= int(text) <= 1_000_000:
+        return int(text)
+
+    return 1
+
+def load_game_page(game_id, actor=None, review_page=1):
     game = db.execute_operation(
         operation="catalog.detail",
         actor=None,
@@ -865,34 +1100,180 @@ def game_detail(game_id):
     )
 
     if game is None:
-        return "Game not found", 404
+        abort(404, description="Game not found.")
 
     game_genres = db.execute_operation(
         operation="game_genres.list",
         actor=None,
         filters={"game_id": game_id},
-    )
+    )["rows"]
 
     game_platforms = db.execute_operation(
         operation="game_platforms.list",
         actor=None,
         filters={"game_id": game_id},
+    )["rows"]
+
+    def fetch_reviews(page):
+        return db.execute_operation(
+            operation="reviews.list",
+            actor=None,
+            filters={"game_id": game_id},
+            page=page,
+            page_size=REVIEWS_PER_PAGE,
+        )
+
+    reviews_result = fetch_reviews(review_page)
+
+    total_pages = max(
+        1,
+        (reviews_result["total"] + REVIEWS_PER_PAGE - 1)
+        // REVIEWS_PER_PAGE,
     )
 
-    reviews = db.execute_operation(
-        operation="reviews.list",
-        actor=None,
-        filters={"game_id": game_id},
+    if review_page > total_pages:
+        review_page = total_pages
+        reviews_result = fetch_reviews(review_page)
+
+    owns_game = False
+    in_wishlist = False
+    own_review = None
+
+    if actor is not None:
+        owns_game = (
+            db.execute_operation(
+                operation="ownership.detail",
+                actor=actor,
+                filters={"game_id": game_id},
+            )
+            is not None
+        )
+
+        own_review = db.execute_operation(
+            operation="reviews.own",
+            actor=actor,
+            filters={"game_id": game_id},
+        )
+
+        if not owns_game:
+            saved = db.execute_operation(
+                operation="wishlist.list",
+                actor=actor,
+            )["rows"]
+
+            in_wishlist = any(row["game_id"] == game_id for row in saved)
+
+    return {
+        "game": game,
+        "game_genres": game_genres,
+        "game_platforms": game_platforms,
+        "reviews": reviews_result["rows"],
+        "review_pagination": {
+            "page": review_page,
+            "total": reviews_result["total"],
+            "total_pages": total_pages,
+        },
+        "owns_game": owns_game,
+        "in_wishlist": in_wishlist,
+        "own_review": own_review,
+    }
+
+
+@app.route("/game/<int:game_id>")
+def game_detail(game_id):
+    try:
+        current = get_current_user()
+
+        actor = None
+
+        if current is not None:
+            actor = {
+                "user_id": current["user_id"],
+                "is_admin": current["is_admin"],
+                "affiliate_publisher_id": (
+                    current["affiliate_publisher_id"]
+                ),
+            }
+
+        page = load_game_page(game_id, actor)
+
+        return render_template("game.html", **page)
+
+    except db.DBError as exc:
+        return game_failure(exc)
+
+
+@app.route(
+    "/game/<int:game_id>/review/save",
+    methods=["POST"],
+)
+@login_required
+def game_review_save(game_id):
+    try:
+        check_form_fields({
+            "csrf_token",
+            "rating",
+            "review_text",
+        })
+
+        rating = request.form.get("rating", "").strip()
+        review_text = request.form.get("review_text", "").strip()
+
+        if not rating:
+            raise db.ValidationError("Rating is required.")
+
+        db.save_review(
+            actor=g.customer_actor,
+            game_id=game_id,
+            rating=rating,
+            review_text=review_text or None,
+        )
+
+        flash(
+            "Your review has been saved.",
+            "success",
+        )
+
+    except db.DBError as exc:
+        return game_failure(exc)
+
+    return redirect(
+        url_for("game_detail", game_id=game_id),
+        code=303,
     )
 
-    return render_template(
-        "game.html",
-        game=game,
-        game_genres=game_genres,
-        game_platforms=game_platforms,
-        reviews=reviews,
-        owns_game=False,
-        own_review=None,
+
+@app.route(
+    "/game/<int:game_id>/review/delete",
+    methods=["POST"],
+)
+@login_required
+def game_review_delete(game_id):
+    try:
+        check_form_fields({"csrf_token"})
+
+        db.delete_review(
+            actor=g.customer_actor,
+            game_id=game_id,
+        )
+
+        flash(
+            "Your review has been deleted.",
+            "success",
+        )
+
+    except db.ResourceNotFound:
+        flash(
+            "Your review could not be found.",
+            "info",
+        )
+
+    except db.DBError as exc:
+        return game_failure(exc)
+
+    return redirect(
+        url_for("game_detail", game_id=game_id),
+        code=303,
     )
 
 if __name__ == "__main__":

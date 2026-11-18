@@ -3,6 +3,151 @@
 {% block title %}GameVault — Orders{% endblock %}
 
 {% block content %}
-<h1>Your orders</h1>
-<p>You have no orders yet.</p>
+<section class="orders-page">
+    <header class="orders-heading">
+        <p class="page-eyebrow">GAMEVAULT / ACCOUNT</p>
+        <h1>Your orders</h1>
+    </header>
+
+    <section id="order-history" aria-labelledby="order-history-title">
+        <div class="results-header">
+            <h2 id="order-history-title">Order history</h2>
+            <p>
+                {{ order_pagination.total }}
+                order{{ 's' if order_pagination.total != 1 else '' }}
+            </p>
+        </div>
+
+        {% if orders %}
+        <div class="order-list">
+            {% for order in orders %}
+            <article class="order">
+                <header class="order-header">
+                    <div>
+                        <h3>Order #{{ order.order_id }}</h3>
+                        <p class="order-date">
+                            {{ order.order_date.strftime('%d %b %Y, %H:%M') }}
+                            · {{ order.item_count }}
+                            item{{ 's' if order.item_count != 1 else '' }}
+                        </p>
+                    </div>
+
+                    <span class="order-status order-status-{{ order.order_status | lower }}">
+                        {{ order.order_status | capitalize }}
+                    </span>
+                </header>
+
+                {% if order['items'] %}
+                <ul class="order-items">
+                    {% for item in order['items'] %}
+                    <li class="order-item">
+                        <a class="order-item-cover" href="{{ url_for('game_detail', game_id=item.game_id) }}">
+                            {% if item.thumbnail_url %}
+                            <img src="{{ item.thumbnail_url }}" alt="Cover art for {{ item.game_name }}">
+                            {% else %}
+                            <span class="cart-cover-placeholder">No cover art</span>
+                            {% endif %}
+                        </a>
+
+                        <a class="order-item-name" href="{{ url_for('game_detail', game_id=item.game_id) }}">
+                            {{ item.game_name }}
+                        </a>
+
+                        <span class="order-item-price">
+                            {% if item.price_paid == 0 %}
+                            Free
+                            {% else %}
+                            ₹{{ "%.2f" | format(item.price_paid) }}
+                            {% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                <footer class="order-footer">
+                    <span class="order-payment">
+                        Payment:
+                        {% if order.payment_status %}
+                        {{ order.payment_status | capitalize }}
+                        {% else %}
+                        None
+                        {% endif %}
+                    </span>
+
+                    <span class="order-total">
+                        Total
+                        <strong>₹{{ "%.2f" | format(order.order_total) }}</strong>
+                    </span>
+                </footer>
+            </article>
+            {% endfor %}
+        </div>
+
+        {% if order_pagination.total_pages > 1 %}
+        <nav class="pagination" aria-label="Order pages">
+            {% if order_pagination.page > 1 %}
+            <a class="pagination-link" href="{{ url_for('orders', page=order_pagination.page - 1) }}">
+                ← Previous
+            </a>
+            {% endif %}
+
+            <span class="pagination-status">
+                Page {{ order_pagination.page }} of {{ order_pagination.total_pages }}
+            </span>
+
+            {% if order_pagination.page < order_pagination.total_pages %} <a class="pagination-link"
+                href="{{ url_for('orders', page=order_pagination.page + 1) }}">
+                Next →
+                </a>
+                {% endif %}
+        </nav>
+        {% endif %}
+
+        {% else %}
+        <div class="empty-state">
+            <h3>You have no orders yet</h3>
+            <p>Games you buy will show up here.</p>
+            <a class="button-primary" href="{{ url_for('index') }}">Browse the catalog</a>
+        </div>
+        {% endif %}
+    </section>
+
+    <section id="owned-games" aria-labelledby="owned-games-title">
+        <div class="results-header">
+            <h2 id="owned-games-title">Your library</h2>
+            <p>
+                {{ owned_total }}
+                game{{ 's' if owned_total != 1 else '' }}
+            </p>
+        </div>
+
+        {% if owned_games %}
+        <ul class="owned-list">
+            {% for game in owned_games %}
+            <li class="owned-game">
+                <a class="order-item-cover" href="{{ url_for('game_detail', game_id=game.game_id) }}">
+                    {% if game.thumbnail_url %}
+                    <img src="{{ game.thumbnail_url }}" alt="Cover art for {{ game.game_name }}">
+                    {% else %}
+                    <span class="cart-cover-placeholder">No cover art</span>
+                    {% endif %}
+                </a>
+
+                <div>
+                    <a class="order-item-name" href="{{ url_for('game_detail', game_id=game.game_id) }}">
+                        {{ game.game_name }}
+                    </a>
+                    <p class="order-date">
+                        Purchased {{ game.first_purchase_date.strftime('%d %b %Y') }}
+                    </p>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="review-note">Games from paid orders will appear in your library.</p>
+        {% endif %}
+    </section>
+</section>
 {% endblock %}

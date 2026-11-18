@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}GameVault — {{ game.game_name }}{% endblock %}
+
+{% block content %}
+<section class="game-page">
+    <a class="game-back-link" href="{{ url_for('index') }}">
+        ← Back to catalog
+    </a>
+
+    <article class="game-hero">
+        <div class="game-cover">
+            {% if game.thumbnail_url %}
+            <img src="{{ game.thumbnail_url }}" alt="Cover art for {{ game.game_name }}">
+            {% else %}
+            <span class="game-cover-placeholder">
+                No cover art
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="game-hero-details">
+            <p class="page-eyebrow">GAMEVAULT / GAME</p>
+            <h1>{{ game.game_name }}</h1>
+
+            <p class="game-meta">
+                Developed by
+                <strong>{{ game.developer_name }}</strong>
+
+                {% if game.publisher_name %}
+                · Published by
+                <strong>{{ game.publisher_name }}</strong>
+                {% endif %}
+            </p>
+
+            {% if game.release_date %}
+            <p class="game-meta">
+                Released {{ game.release_date }}
+            </p>
+            {% endif %}
+
+            <div class="game-tags">
+                {% for genre in game_genres %}
+                <span class="tag">
+                    {{ genre.genre_name }}
+                </span>
+                {% endfor %}
+
+                {% for platform in game_platforms %}
+                <span class="tag tag-platform">
+                    {{ platform.platform_name }}
+                </span>
+                {% endfor %}
+            </div>
+
+            {% if game.description %}
+            <p class="game-description">
+                {{ game.description }}
+            </p>
+            {% endif %}
+        </div>
+
+        <aside class="game-purchase">
+            <p class="page-eyebrow">PRICE</p>
+
+            <div class="game-price">
+                {% if game.discount_percent > 0 %}
+                <del>
+                    ₹{{ "%.2f" | format(game.standard_price) }}
+                </del>
+
+                <span class="game-discount">
+                    {{ "%.2f" | format(game.discount_percent) }}% off
+                </span>
+                {% endif %}
+
+                <strong>
+                    {% if game.current_price == 0 %}
+                    Free
+                    {% else %}
+                    ₹{{ "%.2f" | format(game.current_price) }}
+                    {% endif %}
+                </strong>
+            </div>
+
+            <p class="game-rating">
+                {% if game.review_count > 0 %}
+                {{ "%.1f" | format(game.average_rating) }}/5
+                from {{ game.review_count }}
+                review{{ 's' if game.review_count != 1 else '' }}
+                {% else %}
+                No reviews yet
+                {% endif %}
+            </p>
+
+            {% if current_user %}
+            {% if owns_game %}
+            <p class="game-ownership">
+                You own this game.
+            </p>
+            {% else %}
+            <form method="post" action="{{ url_for('cart_add', game_id=game.game_id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <button type="submit" class="button-primary">
+                    Add to cart
+                </button>
+            </form>
+            <div class="wishlist-action">
+                {% if in_wishlist %}
+                <form method="post" action="{{ url_for('wishlist_remove', game_id=game.game_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="return_to" value="game">
+                    <button type="submit" class="button-secondary">Remove from wishlist</button>
+                </form>
+                {% else %}
+                <form method="post" action="{{ url_for('wishlist_add', game_id=game.game_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="button-secondary">Add to wishlist</button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% else %}
+            <a class="button-primary" href="{{ url_for('login') }}">
+                Sign in to purchase
+            </a>
+            {% endif %}
+
+            <p class="game-purchase-note">
+                Lab prototype: purchases and payments are simulated.
+            </p>
+        </aside>
+    </article>
+
+    <section class="game-reviews" id="reviews" aria-labelledby="reviews-title">
+        <div class="results-header">
+            <h2 id="reviews-title">Reviews</h2>
+            <p>
+                {{ game.review_count }}
+                review{{ 's' if game.review_count != 1 else '' }}
+            </p>
+        </div>
+    
+        <div class="review-controls">
+            {% if current_user and owns_game %}
+            <form method="post" action="{{ url_for('game_review_save', game_id=game.game_id) }}" class="review-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    
+                <h3>
+                    {% if own_review %}Edit your review{% else %}Write a review{% endif %}
+                </h3>
+    
+                <label for="rating">Your rating</label>
+                <select id="rating" name="rating" required>
+                    <option value="">Choose a rating</option>
+    
+                    {% for rating in [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5] %}
+                    <option value="{{ rating }}" {% if own_review and own_review.rating | float==rating | float %}selected{%
+                        endif %}>
+                        {{ rating }} / 5
+                    </option>
+                    {% endfor %}
+                </select>
+    
+                <label for="review_text">
+                    Your review
+                    <span class="optional">(optional)</span>
+                </label>
+    
+                <textarea id="review_text" name="review_text" rows="5"
+                    maxlength="5000">{% if own_review %}{{ own_review.review_text or '' }}{% endif %}</textarea>
+    
+                <div class="review-actions">
+                    <button type="submit">
+                        {% if own_review %}Update review{% else %}Save review{% endif %}
+                    </button>
+                
+                    {% if own_review %}
+                    <button type="submit" form="review-delete-form" class="button-secondary review-delete-button">
+                        Delete review
+                    </button>
+                    {% endif %}
+                </div>
+                </form>
+                
+                {% if own_review %}
+                <form id="review-delete-form" method="post" hidden action="{{ url_for('game_review_delete', game_id=game.game_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+                {% endif %}
+            {% elif current_user %}
+            <p class="review-note">
+                You can review this game after purchasing it.
+            </p>
+            {% else %}
+            <p class="review-note">
+                <a href="{{ url_for('login') }}">Sign in</a>
+                to review games you own.
+            </p>
+            {% endif %}
+        </div>
+    
+        {% if reviews %}
+        <div class="review-list">
+            {% for review in reviews %}
+            <article class="review">
+                <header class="review-header">
+                    <strong>{{ review.username }}</strong>
+                    <span class="review-rating">
+                        {{ "%.1f" | format(review.rating) }}/5
+                    </span>
+                </header>
+    
+                <p class="review-date">
+                    {{ review.review_date }}
+                </p>
+    
+                {% if review.review_text %}
+                <p class="review-text">
+                    {{ review.review_text }}
+                </p>
+                {% endif %}
+            </article>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="review-note">
+            No reviews have been written for this game yet.
+        </p>
+        {% endif %}
+        {% if review_pagination.total_pages > 1 %}
+        <nav class="pagination" aria-label="Review pages">
+            {% if review_pagination.page > 1 %}
+            <a class="pagination-link"
+                href="{{ url_for('game_detail', game_id=game.game_id, review_page=review_pagination.page - 1, _anchor='reviews') }}">
+                ← Previous
+            </a>
+            {% endif %}
+        
+            <span class="pagination-status">
+                Page {{ review_pagination.page }} of {{ review_pagination.total_pages }}
+            </span>
+        
+            {% if review_pagination.page < review_pagination.total_pages %} <a class="pagination-link"
+                href="{{ url_for('game_detail', game_id=game.game_id, review_page=review_pagination.page + 1, _anchor='reviews') }}">
+                Next →
+                </a>
+                {% endif %}
+        </nav>
+        {% endif %}
+    </section>
+</section>
+{% endblock %}
